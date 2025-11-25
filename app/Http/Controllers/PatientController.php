@@ -1,0 +1,322 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\ActivityLog;
+use App\Models\MedicalRecord;
+use App\Models\Patient;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+
+class PatientController extends Controller
+{
+    /**
+     * Tampilkan daftar pasien dengan pencarian.
+     */
+
+    
+
+    public function index(Request $request): View
+    {
+        $search = trim((string) $request->input('q', ''));
+        $selectedDoctor = trim((string) $request->input('dokter', ''));
+        $selectedDiagnosis = trim((string) $request->input('diagnosa', ''));
+        $selectedAgeRange = trim((string) $request->input('umur', ''));
+
+        $patients = Patient::query()
+            ->when($search, function ($query) use ($search): void {
+                $query->where(function ($inner) use ($search): void {
+                    $like = '%' . $search . '%';
+                    $inner->where('nama', 'like', $like)
+                        ->orWhere('nik', 'like', $like)
+                        ->orWhere('no_rekam_medis', 'like', $like);
+                });
+            })
+            ->when($selectedDoctor !== '', function ($query) use ($selectedDoctor): void {
+                $query->whereHas('medicalRecords', function ($records) use ($selectedDoctor): void {
+                    $records->where('dokter', $selectedDoctor);
+                });
+            })
+            ->when($selectedDiagnosis !== '', function ($query) use ($selectedDiagnosis): void {
+                $query->whereHas('medicalRecords', function ($records) use ($selectedDiagnosis): void {
+                    $records->where('diagnosa', $selectedDiagnosis);
+                });
+            })
+            ->when($selectedAgeRange !== '', function ($query) use ($selectedAgeRange): void {
+                [$minAge, $maxAge] = array_pad(array_map('intval', explode('-', $selectedAgeRange)), 2, null);
+                if ($minAge !== null && $maxAge !== null) {
+                    $today = now();
+                    $upperBound = $today->copy()->subYears($minAge); // tanggal lahir maks (lebih muda)
+                    $lowerBound = $today->copy()->subYears($maxAge + 1)->addDay(); // tanggal lahir min (lebih tua)
+
+                    $query->whereBetween('tanggal_lahir', [$lowerBound->startOfDay(), $upperBound->endOfDay()]);
+                }
+            })
+            ->orderBy('nama')
+            ->paginate(10)
+            ->withQueryString();
+
+        $doctorOptions = MedicalRecord::query()
+            ->select('dokter')
+            ->whereNotNull('dokter')
+            ->distinct()
+            ->orderBy('dokter')
+            ->pluck('dokter');
+
+        $diagnosisOptions = MedicalRecord::query()
+            ->select('diagnosa')
+            ->whereNotNull('diagnosa')
+            ->distinct()
+            ->orderBy('diagnosa')
+            ->pluck('diagnosa');
+
+        $ageRanges = collect(range(1, 96, 5))->map(function (int $start): array {
+            $end = min($start + 4, 100);
+
+            return [
+                'value' => "{$start} - {$end}",
+                'label' => "{$start} – {$end} tahun",
+            ];
+        });
+
+        $ageRanges->push([
+            'value' => '101 - 150',
+            'label' => '100 + tahun',
+        ]);
+
+        return view('patients.index', [
+            'patients' => $patients,
+            'search' => $search,
+            'selectedDoctor' => $selectedDoctor,
+            'selectedDiagnosis' => $selectedDiagnosis,
+             'selectedAgeRange' => $selectedAgeRange,
+            'doctorOptions' => $doctorOptions,
+            'diagnosisOptions' => $diagnosisOptions,
+            'ageOptions' => $ageRanges,
+        ]);
+    }
+
+    /**
+     * Detail pasien + riwayat dengan filter.
+     */
+    public function show(Patient $patient): View
+    {
+        $medicalRecords = $patient->medicalRecords()
+            ->orderByDesc('tanggal_kunjungan')
+            ->paginate(10);
+
+        return view('patients.show', [
+            'patient' => $patient,
+            'medicalRecords' => $medicalRecords,
+        ]);
+    }
+
+    /**
+     * Form tambah riwayat.
+     */
+    public function createRecord(Patient $patient): View
+    {
+        return view('patients.records.create', [
+            'patient' => $patient,
+        ]);
+    }
+
+    /**
+     * Simpan riwayat baru.
+     */
+    public function storeRecord(Request $request, Patient $patient): RedirectResponse
+    {
+        $data = $this->validatedRecord($request);
+
+        if ($request->hasFile('attachment')) {
+            $data['attachment_path'] = $request->file('attachment')->store('medical-records', 'public');
+        }
+
+        $medicalRecord = $patient->medicalRecords()->create($data);
+
+        $this->logActivity(
+            'medical_record_created',
+            "Menambahkan riwayat untuk {$patient->nama} ({$patient->no_rekam_medis})",
+            [
+                'patient_id' => $patient->id,
+                'patient_name' => $patient->nama,
+                'record_id' => $medicalRecord->id,
+                'diagnosa' => $medicalRecord->diagnosa,
+                'dokter' => $medicalRecord->dokter,
+            ],
+            MedicalRecord::class,
+            $medicalRecord->id
+        );
+
+        return redirect()
+            ->route('patients.show', $patient)
+            ->with('status', 'Riwayat medis berhasil ditambahkan.');
+    }
+
+    /**
+     * Form edit riwayat.
+     */
+    public function editRecord(Patient $patient, MedicalRecord $medicalRecord): View
+    {
+        $this->ensureRecordBelongsToPatient($medicalRecord, $patient);
+
+        return view('patients.records.edit', [
+            'patient' => $patient,
+            'medicalRecord' => $medicalRecord,
+        ]);
+    }
+
+    /**
+     * Update riwayat penyakit.
+     */
+    public function updateRecord(
+        Request $request,
+        Patient $patient,
+        MedicalRecord $medicalRecord
+    ): RedirectResponse {
+        $this->ensureRecordBelongsToPatient($medicalRecord, $patient);
+
+        $data = $this->validatedRecord($request);
+
+        if ($request->hasFile('attachment')) {
+            $data['attachment_path'] = $request->file('attachment')->store('medical-records', 'public');
+            if ($medicalRecord->attachment_path) {
+                Storage::disk('public')->delete($medicalRecord->attachment_path);
+            }
+        }
+
+        $medicalRecord->update($data);
+
+        $this->logActivity(
+            'medical_record_updated',
+            "Memperbarui riwayat untuk {$patient->nama} ({$patient->no_rekam_medis})",
+            [
+                'patient_id' => $patient->id,
+                'patient_name' => $patient->nama,
+                'record_id' => $medicalRecord->id,
+                'diagnosa' => $medicalRecord->diagnosa,
+                'dokter' => $medicalRecord->dokter,
+            ],
+            MedicalRecord::class,
+            $medicalRecord->id
+        );
+
+        return redirect()
+            ->route('patients.show', $patient)
+            ->with('status', 'Riwayat medis berhasil diperbarui.');
+    }
+
+    /**
+     * Hapus riwayat medis (dokter/admin).
+     */
+    public function destroyRecord(Patient $patient, MedicalRecord $medicalRecord): RedirectResponse
+    {
+        $this->ensureRecordBelongsToPatient($medicalRecord, $patient);
+
+        $metadata = [
+            'patient_id' => $patient->id,
+            'patient_name' => $patient->nama,
+            'record_id' => $medicalRecord->id,
+            'diagnosa' => $medicalRecord->diagnosa,
+            'dokter' => $medicalRecord->dokter,
+        ];
+
+        $medicalRecord->delete();
+
+        $this->logActivity(
+            'medical_record_deleted',
+            "Menghapus riwayat untuk {$patient->nama} ({$patient->no_rekam_medis})",
+            $metadata,
+            MedicalRecord::class,
+            $metadata['record_id']
+        );
+
+        return redirect()
+            ->route('patients.show', $patient)
+            ->with('status', 'Riwayat medis berhasil dihapus.');
+    }
+
+    /**
+     * Unduh lampiran riwayat medis dan catat history.
+     */
+    public function downloadRecord(Patient $patient, MedicalRecord $medicalRecord)
+    {
+        $this->ensureRecordBelongsToPatient($medicalRecord, $patient);
+
+        abort_unless(
+            $medicalRecord->attachment_path && Storage::disk('public')->exists($medicalRecord->attachment_path),
+            404
+        );
+
+        $this->logActivity(
+            'medical_record_downloaded',
+            "Mengunduh lampiran riwayat {$patient->nama} ({$patient->no_rekam_medis})",
+            [
+                'patient_id' => $patient->id,
+                'patient_name' => $patient->nama,
+                'record_id' => $medicalRecord->id,
+                'diagnosa' => $medicalRecord->diagnosa,
+                'dokter' => $medicalRecord->dokter,
+            ],
+            MedicalRecord::class,
+            $medicalRecord->id
+        );
+
+        $filename = basename($medicalRecord->attachment_path);
+
+         /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
+        $disk = Storage::disk('public');
+
+        return $disk->download($medicalRecord->attachment_path, $filename);
+    }
+
+    /**
+     * Validasi data riwayat.
+     */
+    private function validatedRecord(Request $request): array
+    {
+        $validated = $request->validate([
+            'tanggal_kunjungan' => ['required', 'date'],
+            'diagnosa' => ['required', 'string', 'max:255'],
+            'dokter' => ['required', 'string', 'max:255'],
+            'catatan' => ['nullable', 'string'],
+            'attachment' => ['nullable', 'file', 'max:5120'],
+        ]);
+
+        unset($validated['attachment']);
+
+        return $validated;
+    }
+
+    /**
+     * Pastikan riwayat milik pasien terkait.
+     */
+    private function ensureRecordBelongsToPatient(MedicalRecord $medicalRecord, Patient $patient): void
+    {
+        abort_unless($medicalRecord->patient_id === $patient->id, 404);
+    }
+
+    private function logActivity(
+        string $action,
+        string $description,
+        array $metadata = [],
+        ?string $subjectType = null,
+        ?int $subjectId = null
+    ): void {
+       $user = Auth::user();
+
+        ActivityLog::create([
+            'user_id' => $user?->id,
+            'user_role' => $user?->role?->label(),
+            'action' => $action,
+            'description' => $description,
+            'subject_type' => $subjectType,
+            'subject_id' => $subjectId,
+            'metadata' => empty($metadata) ? null : $metadata,
+        ]);
+    }
+}
