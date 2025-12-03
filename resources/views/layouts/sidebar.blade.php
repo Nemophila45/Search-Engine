@@ -9,6 +9,7 @@
         && ($hasDiseaseIndex || $hasDiseaseCreate);
     $historyUrl = Route::has('admin.history.index') ? route('admin.history.index') : '#';
     $diseaseChartUrl = Route::has('admin.reports.disease-chart') ? route('admin.reports.disease-chart') : '#';
+    $patientsUrl = Route::has('patients.index') ? route('patients.index') : '#';
 @endphp
 
 <style>
@@ -75,6 +76,25 @@
                         </a>
                     @endif
 
+                    @if ($diseaseChartUrl !== '#')
+                        <a
+                            href="{{ $diseaseChartUrl }}"
+                            @class([
+                                'flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium hover:bg-white/10',
+                                request()->routeIs('admin.reports.disease-chart') ? 'bg-white/10' : '',
+                            ])
+                        >
+                            <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-5">
+                                    <path d="M4 19v-6m5 6V5m5 14V9m5 10V3" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                            </span>
+                            <span x-show="openSidebar" x-transition x-cloak>Grafik Penyakit</span>
+                        </a>
+                    @endif
+                </div>
+            @elseif ($role === UserRole::MANAGEMENT)
+                <div class="space-y-1">
                     @if ($diseaseChartUrl !== '#')
                         <a
                             href="{{ $diseaseChartUrl }}"

@@ -18,7 +18,7 @@ class UserManagementController extends Controller
     public function index(): View
     {
         $staff = User::query()
-            ->whereIn('role', [UserRole::DOCTOR, UserRole::KOAS])
+            ->whereIn('role', [UserRole::DOCTOR, UserRole::KOAS, UserRole::MANAGEMENT])
             ->orderBy('name')
             ->get();
 
@@ -27,6 +27,7 @@ class UserManagementController extends Controller
             'roles' => [
                 UserRole::DOCTOR,
                 UserRole::KOAS,
+                UserRole::MANAGEMENT,
             ],
         ]);
     }
@@ -37,7 +38,11 @@ class UserManagementController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
-            'role' => ['required', Rule::in([UserRole::DOCTOR->value, UserRole::KOAS->value])],
+            'role' => ['required', Rule::in([
+                UserRole::DOCTOR->value,
+                UserRole::KOAS->value,
+                UserRole::MANAGEMENT->value,
+            ])],
         ]);
 
         $user = User::create([
@@ -69,8 +74,8 @@ class UserManagementController extends Controller
 
     public function destroy(Request $request, User $user): RedirectResponse
     {
-        if (!$user->hasAnyRole(UserRole::DOCTOR, UserRole::KOAS)) {
-            abort(403, 'Hanya akun dokter atau koas yang bisa dihapus.');
+        if (!$user->hasAnyRole(UserRole::DOCTOR, UserRole::KOAS, UserRole::MANAGEMENT)) {
+            abort(403, 'Hanya akun dokter/koas/management yang bisa dihapus.');
         }
 
         if ($request->user()->is($user)) {

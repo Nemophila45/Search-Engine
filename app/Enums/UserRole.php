@@ -7,6 +7,7 @@ enum UserRole: string
     case ADMIN = 'admin';
     case DOCTOR = 'doctor';
     case KOAS = 'koas';
+    case MANAGEMENT = 'management';
 
     /**
      * Human readable label.
@@ -17,7 +18,7 @@ enum UserRole: string
             self::ADMIN => 'Admin',
             self::DOCTOR => 'Dokter',
             self::KOAS => 'Koas',
+            self::MANAGEMENT => 'Management',
         };
     }
 }
-

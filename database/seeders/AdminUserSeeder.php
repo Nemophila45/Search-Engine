@@ -23,25 +23,5 @@ class AdminUserSeeder extends Seeder
                 'email_verified_at' => now(),
             ],
         );
-
-        User::updateOrCreate(
-            ['email' => 'dokter@example.com'],
-            [
-                'name' => 'dr. RSUD',
-                'password' => Hash::make('password'),
-                'role' => UserRole::DOCTOR,
-                'email_verified_at' => now(),
-            ],
-        );
-
-        User::updateOrCreate(
-            ['email' => 'koas@example.com'],
-            [
-                'name' => 'Koas RSUD',
-                'password' => Hash::make('password'),
-                'role' => UserRole::KOAS,
-                'email_verified_at' => now(),
-            ],
-        );
     }
 }

@@ -8,6 +8,7 @@ use App\Models\Patient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -18,7 +19,7 @@ class PatientController extends Controller
      * Tampilkan daftar pasien dengan pencarian.
      */
 
-    
+
 
     public function index(Request $request): View
     {
@@ -113,6 +114,40 @@ class PatientController extends Controller
             'patient' => $patient,
             'medicalRecords' => $medicalRecords,
         ]);
+    }
+
+    /**
+     * Form tambah pasien.
+     */
+    public function create(): View
+    {
+        return view('patients.create');
+    }
+
+    /**
+     * Simpan pasien baru.
+     */
+    public function store(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'no_rekam_medis' => ['required', 'string', 'max:50', 'unique:patients,no_rekam_medis'],
+            'nik' => ['required', 'string', 'max:20', 'unique:patients,nik'],
+            'nama' => ['required', 'string', 'max:255'],
+            'tanggal_lahir' => ['nullable', 'date'],
+            'jenis_kelamin' => ['nullable', 'string', 'max:20'],
+            'no_hp' => ['nullable', 'string', 'max:25'],
+            'alamat' => ['nullable', 'string'],
+            'provinsi' => ['nullable', 'string', 'max:255'],
+            'kabupaten_kota' => ['nullable', 'string', 'max:255'],
+            'kecamatan' => ['nullable', 'string', 'max:255'],
+            'kelurahan_desa' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $patient = Patient::create($validated);
+
+        return redirect()
+            ->route('patients.show', $patient)
+            ->with('status', 'Pasien berhasil ditambahkan.');
     }
 
     /**
@@ -243,7 +278,7 @@ class PatientController extends Controller
     /**
      * Unduh lampiran riwayat medis dan catat history.
      */
-    public function downloadRecord(Patient $patient, MedicalRecord $medicalRecord)
+    public function downloadRecord(Request $request, Patient $patient, MedicalRecord $medicalRecord)
     {
         $this->ensureRecordBelongsToPatient($medicalRecord, $patient);
 
@@ -252,27 +287,67 @@ class PatientController extends Controller
             404
         );
 
-        $this->logActivity(
-            'medical_record_downloaded',
-            "Mengunduh lampiran riwayat {$patient->nama} ({$patient->no_rekam_medis})",
-            [
-                'patient_id' => $patient->id,
-                'patient_name' => $patient->nama,
-                'record_id' => $medicalRecord->id,
-                'diagnosa' => $medicalRecord->diagnosa,
-                'dokter' => $medicalRecord->dokter,
-            ],
-            MedicalRecord::class,
-            $medicalRecord->id
-        );
-
         $filename = basename($medicalRecord->attachment_path);
 
-         /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
         $disk = Storage::disk('public');
 
-        return $disk->download($medicalRecord->attachment_path, $filename);
+        $inline = $request->boolean('inline', false);
+        $mime = $disk->mimeType($medicalRecord->attachment_path) ?? 'application/pdf';
+
+        // Hindari logging berkali kali
+        $userId = Auth::id() ?? 0;
+        $dedupeKey = "record_download:{$userId}:{$medicalRecord->id}";
+        $shouldLog = !Cache::has($dedupeKey);
+        Cache::put($dedupeKey, true, now()->addSeconds(10));
+
+        if ($inline) {
+            // log kalau mau
+            if ($shouldLog) {
+                $this->logActivity(
+                    'medical_record_previewed',
+                    "Preview lampiran riwayat {$patient->nama} ({$patient->no_rekam_medis})",
+                    [
+                        'patient_id' => $patient->id,
+                        'patient_name' => $patient->nama,
+                        'record_id' => $medicalRecord->id,
+                        'diagnosa' => $medicalRecord->diagnosa,
+                        'dokter' => $medicalRecord->dokter,
+                    ],
+                    MedicalRecord::class,
+                    $medicalRecord->id
+                );
+            }
+
+            // INI YANG BIKIN BISA PREVIEW
+            return $disk->response($medicalRecord->attachment_path, $filename, [
+                'Content-Type' => $mime,
+                'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            ]);
+        }
+
+        // ini baru untuk tombol download beneran
+        if ($shouldLog) {
+            $this->logActivity(
+                'medical_record_downloaded',
+                "Mengunduh lampiran riwayat {$patient->nama} ({$patient->no_rekam_medis})",
+                [
+                    'patient_id' => $patient->id,
+                    'patient_name' => $patient->nama,
+                    'record_id' => $medicalRecord->id,
+                    'diagnosa' => $medicalRecord->diagnosa,
+                    'dokter' => $medicalRecord->dokter,
+                ],
+                MedicalRecord::class,
+                $medicalRecord->id
+            );
+        }
+
+        return $disk->download($medicalRecord->attachment_path, $filename, [
+            'Content-Type' => $mime,
+        ]);
     }
+
 
     /**
      * Validasi data riwayat.

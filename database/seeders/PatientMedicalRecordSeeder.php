@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\MedicalRecord;
 use App\Models\Patient;
 use Faker\Factory as FakerFactory;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Seeder;
 
 class PatientMedicalRecordSeeder extends Seeder
@@ -14,22 +15,29 @@ class PatientMedicalRecordSeeder extends Seeder
      */
     public function run(): void
     {
-        $faker = FakerFactory::create('id_ID');
+        // $faker = FakerFactory::create('id_ID');
+        // $faker->unique(true);
 
-        $patients = Patient::factory()
-            ->count(100)
-            ->create();
+        // Bersihkan data dummy pasien & riwayat, tidak menambah data baru
+        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+        DB::table('medical_records')->truncate();
+        DB::table('patients')->truncate();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
 
-        $patients->each(function (Patient $patient) use ($faker): void {
-            $recordCount = $faker->numberBetween(1, 4);
+        // $patients = Patient::factory()
+        //     ->count(100)
+        //     ->create();
 
-            $records = MedicalRecord::factory()
-                ->count($recordCount)
-                ->make([
-                    'patient_id' => $patient->id,
-                ]);
+        // $patients->each(function (Patient $patient) use ($faker): void {
+        //     $recordCount = $faker->numberBetween(1, 4);
 
-            $patient->medicalRecords()->saveMany($records);
-        });
+        //     $records = MedicalRecord::factory()
+        //         ->count($recordCount)
+        //         ->make([
+        //             'patient_id' => $patient->id,
+        //         ]);
+
+        //     $patient->medicalRecords()->saveMany($records);
+        // });
     }
 }

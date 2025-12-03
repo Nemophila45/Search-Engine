@@ -7,6 +7,7 @@
         $canCreateRecord = auth()->check() && auth()->user()->hasAnyRole('admin', 'doctor', 'koas');
         $canEditRecord = auth()->check() && auth()->user()->hasAnyRole('admin', 'doctor');
         $canDeleteRecord = $canEditRecord;
+        $canPreviewAttachment = auth()->check() && auth()->user()->hasAnyRole('admin', 'doctor', 'koas');
     @endphp
     <div class="space-y-8" id="riwayat">
         <div class="rounded-3xl border border-emerald-100 bg-white/90 p-6 shadow-xl shadow-emerald-100">
@@ -48,6 +49,22 @@
                 <div class="rounded-2xl bg-emerald-50/70 px-4 py-3">
                     <p class="text-xs uppercase text-emerald-600">No. HP</p>
                     <p class="text-lg font-semibold text-slate-800 mt-1">{{ $patient->no_hp ?? '-' }}</p>
+                </div>
+                <div class="rounded-2xl bg-emerald-50/70 px-4 py-3">
+                    <p class="text-xs uppercase text-emerald-600">Provinsi</p>
+                    <p class="text-lg font-semibold text-slate-800 mt-1">{{ $patient->provinsi ?? '-' }}</p>
+                </div>
+                <div class="rounded-2xl bg-emerald-50/70 px-4 py-3">
+                    <p class="text-xs uppercase text-emerald-600">Kota/Kabupaten</p>
+                    <p class="text-lg font-semibold text-slate-800 mt-1">{{ $patient->kabupaten_kota ?? '-' }}</p>
+                </div>
+                <div class="rounded-2xl bg-emerald-50/70 px-4 py-3">
+                    <p class="text-xs uppercase text-emerald-600">Kecamatan</p>
+                    <p class="text-lg font-semibold text-slate-800 mt-1">{{ $patient->kecamatan ?? '-' }}</p>
+                </div>
+                <div class="rounded-2xl bg-emerald-50/70 px-4 py-3">
+                    <p class="text-xs uppercase text-emerald-600">Kel/Desa</p>
+                    <p class="text-lg font-semibold text-slate-800 mt-1">{{ $patient->kelurahan_desa ?? '-' }}</p>
                 </div>
                 <div class="rounded-2xl bg-emerald-50/70 px-4 py-3 md:col-span-2 lg:col-span-3">
                     <p class="text-xs uppercase text-emerald-600">Alamat</p>
@@ -91,12 +108,30 @@
                                 <td class="px-5 py-4 text-slate-700">{{ $record->dokter }}</td>
                                 <td class="px-5 py-4 text-slate-600">{{ $record->catatan ?? '-' }}</td>
                                 <td class="px-5 py-4">
-                                    @if ($record->attachment_path)
-                                        <a href="{{ route('patients.records.download', [$patient, $record]) }}"
-                                           class="inline-flex items-center rounded-full border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-500 hover:text-white transition"
-                                           target="_blank" rel="noopener">
-                                            Unduh
-                                        </a>
+                                    @if ($record->attachment_path && $canPreviewAttachment)
+                                        <div class="flex items-center gap-2">
+                                            <a href="{{ route('patients.records.download', [$patient, $record, 'inline' => 1]) }}"
+                                               target="_blank"
+                                               rel="noopener"
+                                               class="inline-flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-600 hover:bg-emerald-500 hover:text-white transition"
+                                               title="Preview">
+                                                <!-- eye icon -->
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                            </a>
+                                            <a href="{{ route('patients.records.download', [$patient, $record]) }}"
+                                               class="inline-flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-600 hover:bg-emerald-500 hover:text-white transition"
+                                               title="Download">
+                                                <!-- download icon -->
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+                                                </svg>
+                                            </a>
+                                        </div>
+                                    @elseif ($record->attachment_path)
+                                        <span class="text-xs text-slate-400">Terlampir</span>
                                     @else
                                         <span class="text-xs text-slate-400">-</span>
                                     @endif

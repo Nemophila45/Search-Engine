@@ -11,6 +11,12 @@
                     <h1 class="text-3xl font-bold text-emerald-800 mt-1">Daftar Pasien</h1>
                     <p class="text-sm text-slate-500 mt-1">Cari pasien berdasarkan nama, NIK, atau nomor rekam medis.</p>
                 </div>
+                @if (auth()->user()?->hasAnyRole('admin', 'doctor'))
+                    <a href="{{ route('patients.create') }}"
+                       class="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-200 hover:bg-emerald-500/90 transition">
+                        + Tambah Pasien
+                    </a>
+                @endif
             </div>
 
             @if (session('status'))

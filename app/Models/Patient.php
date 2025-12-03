@@ -19,6 +19,10 @@ class Patient extends Model
         'nama',
         'tanggal_lahir',
         'alamat',
+        'provinsi',
+        'kabupaten_kota',
+        'kecamatan',
+        'kelurahan_desa',
         'jenis_kelamin',
         'no_hp',
     ];
